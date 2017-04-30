@@ -345,7 +345,7 @@ def main():
     # print (W2_init.shape)
 
     #exercise 1: Read in the data and initializa the parameters of the network
-    # X_train,Y_train,y_train = loadBatch("Datasets/data_batch_1")
+    X_train,Y_train,y_train = loadBatch("Datasets/data_batch_1")
     # X_validation,Y_validation,y_validation = loadBatch("Datasets/data_batch_2",training=False)
     # X_test,Y_test,y_test = loadBatch("Datasets/test_batch",training=False)
 
