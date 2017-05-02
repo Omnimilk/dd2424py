@@ -48,39 +48,7 @@ def softmax(zvector):
     expSum = np.sum(expVector)
     return expVector/expSum
 
-def BN_forward(x,epsilon):
-    N, D = x.shape
-    #batch normalization
-    mean = np.mean(x, axis=0)#D,
-    x_centered = x - mean#N*D
-    sq = x_centered ** 2#N*D
-    var = np.mean(sq, axis=0)#D,
-    sqrtvar = np.sqrt(var + epsilon)#D,
-    ivar = 1. / sqrtvar#D,
-    xhat = x_centered * ivar#N*D
-    # print "mean:{} x_centered:{} sq:{} var:{} sqrtvar:{} ivar:{} xhat:{}".format(mean.shape,x_centered.shape,sq.shape,var.shape,sqrtvar.shape,ivar.shape,xhat.shape)
-    # store intermediate
-    cache = (xhat,mean, x_centered,ivar, sqrtvar, var, epsilon)
-    return xhat, cache
-
-def BN_backward(dout,cache):
-    # unfold the variables stored in cache
-    xhat,mean,x_centered,ivar, sqrtvar, var, epsilon = cache
-
-    N, D = dout.shape
-    #BP along the computational graph
-    divar = np.sum(dout * x_centered, axis=0)#D,
-    dx_centered = dout * ivar#N*D
-    dsqrtvar = -1. / (sqrtvar ** 2) * divar
-    dvar = 0.5 * 1. / np.sqrt(var + epsilon) * dsqrtvar
-    dsq = 1. / N * np.ones((N, D)) * dvar
-    dx_centered  += 2 * x_centered * dsq
-    dmean = -1 * np.sum(dx_centered, axis=0)
-    dx = 1. / N * np.ones((N, D)) * dmean
-    dx += dx_centered
-    return dx
-
-def evaluateClassifier(X,Ws,bs,epsilon = 1e-8):
+def evaluateClassifier(X,Ws,bs):
     """
     implement equations 1 and 2 in the instruction
     :param X: training data,N*d
@@ -90,47 +58,42 @@ def evaluateClassifier(X,Ws,bs,epsilon = 1e-8):
     """
     netSize = len(Ws)
     assert netSize>1 ,"net size must be greater than 1"
+    scores = []
     hidden_layers = []
-    caches = []
-    #do BN for input data
-    X,cache = BN_forward(X,epsilon)
-    caches.append(cache)
+    epsilon = 1e-8
+    #initializa exponential moving average term to
+
+    #normalize input data
+    # mean = np.mean(X, axis=0, keepdims=True)
+    # X = X - mean
+    # variance = np.mean(X ** 2, axis=0)
+    # sqrtVarT = 1. / np.sqrt(variance + epsilon)
+    # X = X * sqrtVarT
     for i in range(netSize-1):
         s = np.dot(X,Ws[i])+bs[i]
+
         #batch normalization in forward pass
-        shat,cache = BN_forward(s,epsilon)
-        caches.append(cache)
-        hidden_layer = np.maximum(0, shat)  # ReLU activation
-        # hidden_layer = np.maximum(0, s)  # ReLU activation
+        # mean = np.mean(s,axis=0,keepdims=True)
+        # s = s-mean
+        # variance = np.mean(s**2,axis=0)
+        # sqrtVarT = 1./np.sqrt(variance+epsilon)
+        # s = s*sqrtVarT#TODO: add gamma and beta for BN as learnable parameters
+        #TODO: Exponential moving average for batch means and variance afeter each epoch,eq.27 and eq.28
+        #TODO: BN for backward pass
+        #TODO: storing cache in forward pass or refactoring it completely
+
+        hidden_layer = np.maximum(0, s)  # ReLU activation
         X = hidden_layer
         hidden_layers.append(hidden_layer)
+        scores.append(s)
     s = np.dot(hidden_layers[-1], Ws[-1]) + bs[-1]
-    exp_scores = np.exp(s)#no ReLu in last layer
+    scores.append(s)
+    exp_scores = np.exp(scores[-1])#no ReLu in last layer
     # print (exp_scores.shape)
     probs = exp_scores / np.sum(exp_scores, axis=1, keepdims=True)#N*K
-    return hidden_layers,caches,probs
+    return scores,hidden_layers,probs
 
-def testClassifer(X,Ws,bs,EMA_mus,EMA_ivars):
-    netSize = len(Ws)
-    hidden_layers = []
-    assert netSize > 1, "net size must be greater than 1"
-
-    X_centered = X- EMA_mus[0]
-    Xhat = X_centered*EMA_ivars[0]
-    for i in range(netSize - 1):
-        s = np.dot(Xhat, Ws[i]) + bs[i]
-        # batch normalization in forward pass
-        shat = (s-EMA_mus[i+1])*EMA_ivars[i+1]
-        hidden_layer = np.maximum(0, shat)  # ReLU activation
-        Xhat = hidden_layer
-        hidden_layers.append(hidden_layer)
-    s = np.dot(hidden_layers[-1], Ws[-1]) + bs[-1]
-    exp_scores = np.exp(s)  # no ReLu in last layer
-    # print (exp_scores.shape)
-    probs = exp_scores / np.sum(exp_scores, axis=1, keepdims=True)  # N*K
-    return probs
-
-def computeCost(X,Y,Ws,bs,lambdaValue,EMA_mus=None,EMA_ivars=None):
+def computeCost(X,Y,Ws,bs,lambdaValue):
     """
     compute the cost function given by eq.5
     :param X: training set,n*d
@@ -143,10 +106,7 @@ def computeCost(X,Y,Ws,bs,lambdaValue,EMA_mus=None,EMA_ivars=None):
     regularizationTerm = lambdaValue*sum([np.sum(W**2) for W in Ws])
 
     sizeD = X.shape[0]
-    if EMA_mus is None:
-        _,_,P = evaluateClassifier(X,Ws,bs)
-    else:
-        P = testClassifer(X,Ws,bs,EMA_mus,EMA_ivars)
+    scores, hidden_layers,P = evaluateClassifier(X,Ws,bs)
     correct = P*Y#length = n list
     # compute the loss: average cross-entropy loss and regularization
     correct_logprobs = -np.log(np.sum(correct,axis=1))
@@ -155,7 +115,7 @@ def computeCost(X,Y,Ws,bs,lambdaValue,EMA_mus=None,EMA_ivars=None):
     cost =data_loss+regularizationTerm
     return cost
 
-def computeAccuracy(X,y,Ws,bs,EMA_mus=None,EMA_ivars=None):
+def computeAccuracy(X,y,Ws,bs):
     """
     compute the accuracy of the network's predictions given by eq.4 on a set of data
     :param X: data matrix
@@ -164,12 +124,7 @@ def computeAccuracy(X,y,Ws,bs,EMA_mus=None,EMA_ivars=None):
     :param b: offset
     :return: accurracy for the parameters
     """
-    if EMA_ivars is None:
-        h,_,p = evaluateClassifier(X,Ws,bs)
-    else:
-        h, _, p_ = evaluateClassifier(X, Ws, bs)
-        p = testClassifer(X,Ws,bs,EMA_mus,EMA_ivars)#Issue: all near zero
-        diffp = p-p_
+    s,h,p = evaluateClassifier(X,Ws,bs)
     predictions = np.argmax(p, axis=1)
     acc = np.mean(predictions == y)
     return acc
@@ -226,21 +181,8 @@ def computeGradients(X,Y,Ws,bs,lambdaValue):
     netSize = len(Ws)
     assert netSize>=2, "network size must be greater than 2"
 
-    #keep a record of mus and vars for each layer
-    mus = []
-    ivars = []
-
     #forward pass
-    hiddenlayers,caches,P = evaluateClassifier(X,Ws,bs)
-    # extract mus and vars in each layer
-    for cache in caches:
-        xhat, mean, x_centered, ivar, sqrtvar, var, epsilon = cache
-        mus.append(mean)
-        ivars.append(ivar)
-    mus = np.asarray(mus)
-    ivars = np.asarray(ivars)
-
-    # print("caches: {}, scores: {}, hiddenlayers:{}".format(len(caches),len(scores),len(hiddenlayers)))
+    scores,hiddenlayers,P = evaluateClassifier(X,Ws,bs)
 
     #backward pass
     dWs = []
@@ -253,16 +195,11 @@ def computeGradients(X,Y,Ws,bs,lambdaValue):
 
     #from last score to
     for i in range(netSize-1):
-        #from s to W,b and h
         dWi = np.dot(hiddenlayers[netSize-i-2].T,dscores)#netSize must be greater than 2
         dbi = np.sum(dscores,axis=0,keepdims=False)
         dh = np.dot(dscores,Ws[netSize-i-1].T)
-        #from h to shat
         dh[hiddenlayers[netSize-i-2]<=0] = 0
-        dshat = dh
-        # #back propogate from shat to s
-        dscores = BN_backward(dshat,caches[netSize-i-1])
-        # dscores = dh
+        dscores = dh
         dWs.append(dWi)
         dbs.append(dbi)
 
@@ -279,7 +216,7 @@ def computeGradients(X,Y,Ws,bs,lambdaValue):
     #reg grad for Ws
     for i in range(netSize):
         dWs[i] += lambdaValue*Ws[i]
-    return dWs,dbs,mus,ivars
+    return dWs,dbs
 
 def gradCheck(numWs,numbs,anaWs,anabs):
     netSize = len(numWs)
@@ -301,7 +238,7 @@ def gradCheck(numWs,numbs,anaWs,anabs):
 
     return  res
 
-def miniBatchGD(X,Y,y,validationX,validationY,validationy,GDparams,Ws,bs,lambdaValue,alpha=0.99):
+def miniBatchGD(X,Y,y,validationX,validationY,validationy,GDparams,Ws,bs,lambdaValue):
     """
     :param X:all training images
     :param Y,y:labels for the training images
@@ -322,10 +259,6 @@ def miniBatchGD(X,Y,y,validationX,validationY,validationy,GDparams,Ws,bs,lambdaV
     vWs = [0]*netSize
     vbs = [0]*netSize
 
-    # exponential moving average mu and var for each layer
-    EMA_mus = None
-    EMA_ivars = None
-
     #train; update
     for n in range(n_epochs):
         for i in range(batchIter):
@@ -333,16 +266,7 @@ def miniBatchGD(X,Y,y,validationX,validationY,validationy,GDparams,Ws,bs,lambdaV
             batchEnd = (i+1)*n_batch
             X_batch = X[batchStart:batchEnd]
             Y_batch = Y[batchStart:batchEnd]
-            gWs,gbs,mus,ivars = computeGradients(X_batch,Y_batch,Ws,bs,lambdaValue)
-            # print ("mus shape: {} ivars shape: {}".format(mus.shape,ivars.shape))
-            if EMA_mus is not None:#if EMA terms has been initialized, then apply 27 and 28
-                EMA_mus = alpha*EMA_mus+(1-alpha)*mus
-                EMA_ivars = alpha*EMA_ivars +(1-alpha)*ivars
-            else:#initialize EMA with values from first batch
-                EMA_mus = mus
-                EMA_ivars = ivars
-
-
+            gWs,gbs = computeGradients(X_batch,Y_batch,Ws,bs,lambdaValue)
             #momentum update
             for j in range(netSize):
                 vWs[j] = rho*vWs[j] + learning_rate*gWs[j]
@@ -354,26 +278,19 @@ def miniBatchGD(X,Y,y,validationX,validationY,validationy,GDparams,Ws,bs,lambdaV
             # for j in range(netSize):
             #     Ws[j] -=gWs[j]
             #     bs[j] -=gbs[j]
-        if (n+1)%10==0:
+        if n%10==0:
             learning_rate = decayRate*learning_rate
-        #without batchnormalization
-        # acc = computeAccuracy(X, y, Ws, bs)
-        # cost = computeCost(X, Y, Ws, bs, lambdaValue)
-        # vacc = computeAccuracy(validationX, validationy, Ws, bs)
-        # vcost = computeCost(validationX, validationY, Ws, bs, lambdaValue)
-
-        #with batch normalization
-        acc = computeAccuracy(X,y,Ws,bs,EMA_mus,EMA_ivars)
-        cost = computeCost(X,Y,Ws,bs,lambdaValue,EMA_mus,EMA_ivars)
-        vacc = computeAccuracy(validationX,validationy,Ws,bs,EMA_mus,EMA_ivars)
-        vcost = computeCost(validationX,validationY,Ws,bs,lambdaValue,EMA_mus,EMA_ivars)
+        acc = computeAccuracy(X,y,Ws,bs)
+        cost = computeCost(X,Y,Ws,bs,lambdaValue)
+        vacc = computeAccuracy(validationX,validationy,Ws,bs)
+        vcost = computeCost(validationX,validationY,Ws,bs,lambdaValue)
         trainingLoss.append(cost)
         validationLoss.append(vcost)
         # print("b:{}".format(b))
         # print("Epoch {} training accuracy:{} training cost: {} valiation accuracy: {} validation cost: {}".format(n, acc,cost, vacc,vcost))
         if n==(n_epochs-1):
             print("Epoch {} training accuracy:{} training cost: {} valiation accuracy: {} validation cost: {}".format(n+1,acc,cost,vacc,vcost))
-    return (Ws,bs,trainingLoss,validationLoss,EMA_mus,EMA_ivars)
+    return (Ws,bs,trainingLoss,validationLoss)
 
 def plotLoss(trainingLoss,validationLoss):
     # n_epochs = len(trainingLoss)
@@ -426,49 +343,48 @@ def paramsInit(d,h_sizes,K,sd):
 
 def main():
     #Initializa the parameters of the network
-    Ws,bs = paramsInit(d=3072,h_sizes=[50,30],K=10,sd=0.001)
+    Ws,bs = paramsInit(d=3072,h_sizes=[100],K=10,sd=0.001)
     #Read in the data
-    X_train,Y_train,y_train,trainBatchMean = loadBatch("Datasets/data_batch_1",zeroCentering=False)
-    X_validation,Y_validation,y_validation,_ = loadBatch("Datasets/data_batch_2",zeroCentering=False)
-    if trainBatchMean is not None:
-        print ("batch Mean shape: {}".format(trainBatchMean.shape))
-        X_validation -= trainBatchMean
-    X_test,Y_test,y_test,_ = loadBatch("Datasets/test_batch",zeroCentering=False)
+    # X_train,Y_train,y_train,trainBatchMean = loadBatch("Datasets/data_batch_1",zeroCentering=False)
+    # X_validation,Y_validation,y_validation,batchMeanV = loadBatch("Datasets/data_batch_2",zeroCentering=False)
+    # if trainBatchMean is not None:
+    #     print ("batch Mean shape: {}".format(trainBatchMean.shape))
+    #     X_validation -= trainBatchMean
+    # X_test,Y_test,y_test = loadBatch("Datasets/test_batch",training=False)
 
 
-    emin =-2#on log scale
-    emax =-1#on log scale
-    lmin =-6
-    lmax = -2
-    for i in range(100):
-        Ws, bs = paramsInit(d=3072, h_sizes=[50], K=10, sd=0.001)
-        #random search in reasonable eta and lambda
-        e = emin + (emax-emin)*np.random.rand(1)
-        eta = 10**e
-        l = lmin + (lmax - lmin) * np.random.rand(1)
-        lam = 10 ** l
-        print ("eta: {} lam: {}".format(eta,lam))
-        GDparams = (100,eta,10,0.9)#n_batch,learning_rate,n_epochs,rho
-        Ws_after,bs_after, trainingLoss, validationLoss,_,_ = miniBatchGD(X_train,Y_train,y_train,X_validation,Y_validation,y_validation,GDparams,Ws,bs,lam)
-        # plotLoss(trainingLoss,validationLoss)
+    # emin =-1.1#on log scale
+    # emax =-0.7#on log scale
+    # lmin =-6
+    # lmax = -2
+    # for i in range(100):
+    #     Ws, bs = paramsInit(d=3072, h_sizes=[50], K=10, sd=0.001)
+    #     #random search in reasonable eta and lambda
+    #     e = emin + (emax-emin)*np.random.rand(1)
+    #     eta = 10**e
+    #     l = lmin + (lmax - lmin) * np.random.rand(1)
+    #     lam = 10 ** l
+    #     print ("eta: {} lam: {}".format(eta,lam))
+    #     GDparams = (100,eta,10,0.9)#n_batch,learning_rate,n_epochs,rho
+    #     Ws_after,bs_after, trainingLoss, validationLoss = miniBatchGD(X_train,Y_train,y_train,X_validation,Y_validation,y_validation,GDparams,Ws,bs,lam)
+    #     # plotLoss(trainingLoss,validationLoss)
 
 
     # using as much data as possible
-    # X_train, Y_train, y_train = loadAllBatchs(zeroCentering=False)
-    # X_train =X_train[1000:]
-    # Y_train =Y_train[1000:]
-    # y_train =y_train[1000:]
-    # X_validation, Y_validation, y_validation,_ = loadBatch("Datasets/data_batch_1", zeroCentering=False)
-    # X_validation = X_validation[:1000]
-    # Y_validation = Y_validation[:1000]
-    # y_validation = y_validation[:1000]
-    # X_test, Y_test, y_test,_ = loadBatch("Datasets/test_batch", zeroCentering=False)
-    # GDparams = (100, 0.03, 10, 0.9)  # n_batch,learning_rate,n_epochs,rho
-    # Ws, bs, trainingLoss, validationLoss,EMA_mus,EMA_ivars = miniBatchGD(X_train, Y_train, y_train,X_validation, Y_validation,y_validation, GDparams, Ws,bs, 1e-6)
-    # plotLoss(trainingLoss, validationLoss)
-    # acc = computeAccuracy(X_test,y_test,Ws,bs,EMA_mus,EMA_ivars)
-    # # print ("EMA shape:{} {} ivars, {}{}".format(EMA_mus[0].shape,EMA_mus.shape,EMA_ivars[0].shape,EMA_ivars[1].shape))
-    # print "test acc: {}".format(acc)
+    X_train, Y_train, y_train = loadAllBatchs(zeroCentering=False)
+    X_train =X_train[1000:]
+    Y_train =Y_train[1000:]
+    y_train =y_train[1000:]
+    X_validation, Y_validation, y_validation,_ = loadBatch("Datasets/data_batch_1", zeroCentering=False)
+    X_validation = X_validation[:1000]
+    Y_validation = Y_validation[:1000]
+    y_validation = y_validation[:1000]
+    X_test, Y_test, y_test,_ = loadBatch("Datasets/test_batch", zeroCentering=False)
+    GDparams = (100, 0.01, 10, 0.9)  # n_batch,learning_rate,n_epochs,rho
+    Ws, bs, trainingLoss, validationLoss = miniBatchGD(X_train, Y_train, y_train,X_validation, Y_validation,y_validation, GDparams, Ws,bs, 1e-6)
+    plotLoss(trainingLoss, validationLoss)
+    acc = computeAccuracy(X_test,y_test,Ws,bs)
+    print "test acc: {}".format(acc)
 
 
 
