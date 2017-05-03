@@ -10,6 +10,9 @@ def convertToOneHot(index,size=10):
     oneHot[index] =1
     return oneHot
 
+def dataAugmentation(data):
+    pass
+
 def normalizeRGB(dataset):
     return dataset/255.
 
@@ -167,9 +170,9 @@ def computeAccuracy(X,y,Ws,bs,EMA_mus=None,EMA_ivars=None):
     if EMA_ivars is None:
         h,_,p = evaluateClassifier(X,Ws,bs)
     else:
-        h, _, p_ = evaluateClassifier(X, Ws, bs)
+        # h, _, p_ = evaluateClassifier(X, Ws, bs)
         p = testClassifer(X,Ws,bs,EMA_mus,EMA_ivars)#Issue: all near zero
-        diffp = p-p_
+        # diffp = p-p_
     predictions = np.argmax(p, axis=1)
     acc = np.mean(predictions == y)
     return acc
@@ -260,7 +263,7 @@ def computeGradients(X,Y,Ws,bs,lambdaValue):
         #from h to shat
         dh[hiddenlayers[netSize-i-2]<=0] = 0
         dshat = dh
-        # #back propogate from shat to s
+        # # #back propogate from shat to s
         dscores = BN_backward(dshat,caches[netSize-i-1])
         # dscores = dh
         dWs.append(dWi)
@@ -425,50 +428,53 @@ def paramsInit(d,h_sizes,K,sd):
     return Ws,bs
 
 def main():
+    """
+    change the archetecture by simply change hidden layer size in paramsInit()
+    """
     #Initializa the parameters of the network
-    Ws,bs = paramsInit(d=3072,h_sizes=[50,30],K=10,sd=0.001)
+    Ws,bs = paramsInit(d=3072,h_sizes=[50],K=10,sd=0.05)
     #Read in the data
-    X_train,Y_train,y_train,trainBatchMean = loadBatch("Datasets/data_batch_1",zeroCentering=False)
-    X_validation,Y_validation,y_validation,_ = loadBatch("Datasets/data_batch_2",zeroCentering=False)
-    if trainBatchMean is not None:
-        print ("batch Mean shape: {}".format(trainBatchMean.shape))
-        X_validation -= trainBatchMean
-    X_test,Y_test,y_test,_ = loadBatch("Datasets/test_batch",zeroCentering=False)
+    # X_train,Y_train,y_train,trainBatchMean = loadBatch("Datasets/data_batch_1",zeroCentering=False)
+    # X_validation,Y_validation,y_validation,_ = loadBatch("Datasets/data_batch_2",zeroCentering=False)
+    # if trainBatchMean is not None:
+    #     print ("batch Mean shape: {}".format(trainBatchMean.shape))
+    #     X_validation -= trainBatchMean
+    # X_test,Y_test,y_test,_ = loadBatch("Datasets/test_batch",zeroCentering=False)
 
 
-    emin =-2#on log scale
-    emax =-1#on log scale
-    lmin =-6
-    lmax = -2
-    for i in range(100):
-        Ws, bs = paramsInit(d=3072, h_sizes=[50], K=10, sd=0.001)
-        #random search in reasonable eta and lambda
-        e = emin + (emax-emin)*np.random.rand(1)
-        eta = 10**e
-        l = lmin + (lmax - lmin) * np.random.rand(1)
-        lam = 10 ** l
-        print ("eta: {} lam: {}".format(eta,lam))
-        GDparams = (100,eta,10,0.9)#n_batch,learning_rate,n_epochs,rho
-        Ws_after,bs_after, trainingLoss, validationLoss,_,_ = miniBatchGD(X_train,Y_train,y_train,X_validation,Y_validation,y_validation,GDparams,Ws,bs,lam)
-        # plotLoss(trainingLoss,validationLoss)
+    # emin =-2#on log scale
+    # emax =-1#on log scale
+    # lmin =-4
+    # lmax = -2
+    # for i in range(300):
+    #     Ws, bs = paramsInit(d=3072, h_sizes=[50,30], K=10, sd=0.001)
+    #     #random search in reasonable eta and lambda
+    #     e = emin + (emax-emin)*np.random.rand(1)
+    #     eta = 10**e
+    #     l = lmin + (lmax - lmin) * np.random.rand(1)
+    #     lam = 10 ** l
+    #     print ("i: {} eta: {} lam: {}".format(i,eta,lam))
+    #     GDparams = (100,eta,6,0.9)#n_batch,learning_rate,n_epochs,rho
+    #     Ws_after,bs_after, trainingLoss, validationLoss,_,_ = miniBatchGD(X_train,Y_train,y_train,X_validation,Y_validation,y_validation,GDparams,Ws,bs,lam)
+    #     # plotLoss(trainingLoss,validationLoss)
 
 
     # using as much data as possible
-    # X_train, Y_train, y_train = loadAllBatchs(zeroCentering=False)
-    # X_train =X_train[1000:]
-    # Y_train =Y_train[1000:]
-    # y_train =y_train[1000:]
-    # X_validation, Y_validation, y_validation,_ = loadBatch("Datasets/data_batch_1", zeroCentering=False)
-    # X_validation = X_validation[:1000]
-    # Y_validation = Y_validation[:1000]
-    # y_validation = y_validation[:1000]
-    # X_test, Y_test, y_test,_ = loadBatch("Datasets/test_batch", zeroCentering=False)
-    # GDparams = (100, 0.03, 10, 0.9)  # n_batch,learning_rate,n_epochs,rho
-    # Ws, bs, trainingLoss, validationLoss,EMA_mus,EMA_ivars = miniBatchGD(X_train, Y_train, y_train,X_validation, Y_validation,y_validation, GDparams, Ws,bs, 1e-6)
-    # plotLoss(trainingLoss, validationLoss)
-    # acc = computeAccuracy(X_test,y_test,Ws,bs,EMA_mus,EMA_ivars)
+    X_train, Y_train, y_train = loadAllBatchs(zeroCentering=False)
+    X_train =X_train[1000:]
+    Y_train =Y_train[1000:]
+    y_train =y_train[1000:]
+    X_validation, Y_validation, y_validation,_ = loadBatch("Datasets/data_batch_1", zeroCentering=False)
+    X_validation = X_validation[:1000]
+    Y_validation = Y_validation[:1000]
+    y_validation = y_validation[:1000]
+    X_test, Y_test, y_test,_ = loadBatch("Datasets/test_batch", zeroCentering=False)
+    GDparams = (100, 0.0307, 10, 0.9)  # n_batch,learning_rate,n_epochs,rho
+    Ws, bs, trainingLoss, validationLoss,EMA_mus,EMA_ivars = miniBatchGD(X_train, Y_train, y_train,X_validation, Y_validation,y_validation, GDparams, Ws,bs, 0.00139)
+    plotLoss(trainingLoss, validationLoss)
+    acc = computeAccuracy(X_test,y_test,Ws,bs,EMA_mus,EMA_ivars)
     # # print ("EMA shape:{} {} ivars, {}{}".format(EMA_mus[0].shape,EMA_mus.shape,EMA_ivars[0].shape,EMA_ivars[1].shape))
-    # print "test acc: {}".format(acc)
+    print "test acc: {}".format(acc)
 
 
 
